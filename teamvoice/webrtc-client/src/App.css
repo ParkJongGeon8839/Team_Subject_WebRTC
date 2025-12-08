@@ -1,0 +1,114 @@
+/* 기본 리셋 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* 전체 배경 */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: #f5f7fb;
+}
+
+/* 앱 전체 컨테이너 */
+.app-root {
+  min-height: 100vh;
+  padding: 24px 16px;
+
+  /* 가로 가운데 정렬 */
+  display: block;
+}
+
+/* 실제 내용이 들어가는 영역 (가운데 정렬 + 최대 폭) */
+.app-inner {
+  width: 100%;
+  max-width: 720px; /* 카드가 차지하는 최대 폭 */
+  margin: 0 auto; /* 화면 기준 가로 가운데 정렬 */
+}
+
+/* 상단 타이틀 */
+.app-header {
+  margin-bottom: 16px;
+}
+
+.app-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.app-subtitle {
+  font-size: 14px;
+  color: #555;
+}
+
+/* 카드 */
+.app-card {
+  width: 100%;
+  background-color: #ffffff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
+}
+
+/* 방 입력 폼 */
+.room-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.room-input {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  min-width: 180px;
+  flex: 1;
+}
+
+.button-primary {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  background-color: #2563eb;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button-primary:disabled {
+  background-color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.status-text {
+  font-size: 14px;
+  color: #334155;
+  margin-top: 8px;
+}
+
+/* 모바일에서는 여백/폰트 조금 줄이기 */
+@media (max-width: 640px) {
+  .app-root {
+    padding: 12px;
+  }
+
+  .app-title {
+    font-size: 22px;
+  }
+
+  .app-card {
+    padding: 16px;
+  }
+}
