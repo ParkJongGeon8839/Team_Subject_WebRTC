@@ -1,32 +1,37 @@
+// === 필요한 모듈 import ===
 const express = require("express");
 const http = require("http");
 const socketIo = require("socket.io");
 const cors = require("cors");
 
+// === Express 앱 및 HTTP 서버 생성 ===
 const app = express();
 const server = http.createServer(app);
 
-// CORS 설정 - 다른 도메인에서의 요청 허용
+// CORS 미들웨어 설정 (다른 도메인에서의 HTTP 요청 허용)
 app.use(cors());
 
-// Socket.io 서버 설정 및 CORS 허용 도메인 지정
+// === Socket.io 서버 설정 ===
 const io = socketIo(server, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:5174"], // Vite 개발 서버 포트
+    // WebSocket 연결을 허용할 도메인 (Vite 개발 서버 포트)
+    origin: ["http://localhost:5173", "http://localhost:5174"],
+    // 허용할 HTTP 메서드
     methods: ["GET", "POST"],
   },
 });
 
-// 방 정보 저장 객체
-let rooms = {}; // { roomId: [{ id: socketId, nickname: 'name', isSharing: false }] }
-let socketToRoom = {}; // { socketId: roomId } - 소켓ID로 방ID 찾기
-const MAXIMUM = 5; // 한 방의 최대 인원 수
+// === 전역 데이터 저장소 ===
+// 방 정보: { roomId: [{ id: socketId, nickname: 'name', isSharing: false }] }
+let rooms = {};
+// 소켓ID로 방ID 찾기: { socketId: roomId }
+let socketToRoom = {};
+// 한 방의 최대 인원 수
+const MAXIMUM = 5;
 
-// 클라이언트 연결 시 실행
+// === Socket.io 연결 처리 ===
 io.on("connection", (socket) => {
-  console.log(`[CONNECTION] ${socket.id}`);
-
-  // 방 생성 이벤트 처리
+  // === 1. 방 생성 이벤트 ===
   socket.on("create_room", (data) => {
     const { roomId, nickname } = data;
 
@@ -36,22 +41,23 @@ io.on("connection", (socket) => {
     }
 
     // 방에 사용자 추가
-    rooms[roomId].push({ id: socket.id, nickname: nickname, isSharing: false });
-    socketToRoom[socket.id] = roomId; // 소켓ID와 방ID 매핑
-    socket.join(roomId); // Socket.io 방에 참가
+    rooms[roomId].push({ id: socket.id, nickname, isSharing: false });
+    // 소켓ID와 방ID 매핑
+    socketToRoom[socket.id] = roomId;
+    // Socket.io 방에 참가 (방별 메시지 전송용)
+    socket.join(roomId);
 
-    console.log(`[CREATE ROOM] ${nickname} created room ${roomId}`);
-    socket.emit("room_created", { roomId }); // 방 생성 완료 알림
+    // 방 생성 완료 알림
+    socket.emit("room_created", { roomId });
   });
 
-  // 방 입장 이벤트 처리
+  // === 2. 방 입장 이벤트 ===
   socket.on("join_room", (data) => {
     const { roomId, nickname } = data;
 
     // 방이 존재하는지 확인
     if (!rooms[roomId]) {
-      console.log(`[JOIN ROOM] Room ${roomId} not found`);
-      socket.emit("room_not_found"); // 방을 찾을 수 없음 알림
+      socket.emit("room_not_found");
       return;
     }
 
@@ -59,79 +65,69 @@ io.on("connection", (socket) => {
 
     // 방이 꽉 찼는지 확인
     if (room.length >= MAXIMUM) {
-      console.log(`[JOIN ROOM] Room ${roomId} is full`);
-      socket.emit("room_full"); // 방이 가득 참 알림
+      socket.emit("room_full");
       return;
     }
 
-    // 본인을 제외한 같은 방의 유저들 정보 저장 (입장 전에 미리 저장)
+    // 기존 유저 목록 (입장 전에 미리 저장)
     const usersInRoom = room.map((user) => ({
       id: user.id,
       nickname: user.nickname,
-      isSharing: user.isSharing,
+      isSharing: user.isSharing, // 화면 공유 상태 포함
     }));
 
-    // 방에 입장 - 사용자 추가
-    room.push({ id: socket.id, nickname: nickname, isSharing: false });
-    socketToRoom[socket.id] = roomId; // 소켓ID와 방ID 매핑
-    socket.join(roomId); // Socket.io 방에 참가
+    // 방에 사용자 추가
+    room.push({ id: socket.id, nickname, isSharing: false });
+    socketToRoom[socket.id] = roomId;
+    socket.join(roomId);
 
-    console.log(`[JOIN ROOM] ${nickname} (${socket.id}) joined room ${roomId}`);
-    console.log(
-      `[JOIN ROOM] Current users in room:`,
-      room.map((u) => u.nickname)
-    );
-    console.log(`[JOIN ROOM] Sending ${usersInRoom.length} users to new user`);
-
-    // 본인에게 방에 있는 기존 유저 목록 전송 (화면 공유 상태 포함)
+    // 새 유저에게 기존 유저 목록 전송
     socket.emit("all_users", usersInRoom);
 
-    // 방의 모든 유저에게 새 유저 입장 알림 (본인 제외)
+    // 기존 유저들에게 새 유저 입장 알림 (본인 제외)
     socket.to(roomId).emit("user_joined", {
       id: socket.id,
-      nickname: nickname,
+      nickname,
       isSharing: false,
     });
-
-    console.log(`[JOIN ROOM] User list sent to ${nickname}:`, usersInRoom);
   });
 
-  // WebRTC Offer 전달 (연결 제안)
+  // === 3. WebRTC Offer 전달 ===
+  // 클라이언트가 화면 공유를 시작하면 상대방에게 연결 제안 전송
   socket.on("offer", (data) => {
-    console.log(`[OFFER] from ${socket.id} to ${data.offerReceiveId}`);
     // 특정 사용자에게만 Offer 전달
     socket.to(data.offerReceiveId).emit("getOffer", {
-      sdp: data.sdp, // Session Description Protocol
-      offerSendId: socket.id,
+      sdp: data.sdp, // Session Description Protocol (연결 정보)
+      offerSendId: socket.id, // 보낸 사람 ID
       offerSendNickname: data.offerSendNickname || "Unknown",
     });
   });
 
-  // WebRTC Answer 전달 (연결 응답)
+  // === 4. WebRTC Answer 전달 ===
+  // Offer를 받은 클라이언트가 응답을 보냄
   socket.on("answer", (data) => {
-    console.log(`[ANSWER] from ${socket.id} to ${data.answerReceiveId}`);
     // 특정 사용자에게만 Answer 전달
     socket.to(data.answerReceiveId).emit("getAnswer", {
-      sdp: data.sdp,
-      answerSendId: socket.id,
+      sdp: data.sdp, // Session Description Protocol (연결 정보)
+      answerSendId: socket.id, // 보낸 사람 ID
     });
   });
 
-  // ICE Candidate 전달 (네트워크 연결 정보)
+  // === 5. ICE Candidate 전달 ===
+  // P2P 연결을 위한 네트워크 경로 정보 교환
   socket.on("candidate", (data) => {
-    console.log(`[CANDIDATE] from ${socket.id} to ${data.candidateReceiveId}`);
     // 특정 사용자에게만 ICE Candidate 전달
     socket.to(data.candidateReceiveId).emit("getCandidate", {
-      candidate: data.candidate,
-      candidateSendId: socket.id,
+      candidate: data.candidate, // ICE Candidate (네트워크 경로 정보)
+      candidateSendId: socket.id, // 보낸 사람 ID
     });
   });
 
-  // 채팅 메시지 전달
+  // === 6. 채팅 메시지 전달 ===
   socket.on("send_message", (data) => {
     const roomId = socketToRoom[socket.id];
     if (roomId) {
-      // 메시지 보낸 사용자 정보 찾기
+      // 메시지 보낸 사용자 찾기
       const sender = rooms[roomId].find((user) => user.id === socket.id);
       // 같은 방의 모든 사용자에게 메시지 전송 (본인 포함)
       io.to(roomId).emit("receive_message", {
@@ -142,7 +138,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 화면 공유 상태 변경 알림
+  // === 7. 화면 공유 상태 변경 알림 ===
   socket.on("screen_share_status", (data) => {
     const roomId = socketToRoom[socket.id];
     if (roomId && rooms[roomId]) {
@@ -157,25 +153,21 @@ io.on("connection", (socket) => {
         userId: socket.id,
         isSharing: data.isSharing,
       });
-
-      console.log(`[SCREEN SHARE] ${socket.id} isSharing: ${data.isSharing}`);
     }
   });
 
-  // Offer 요청 중계 (화면 공유 중인 사용자에게 연결 요청)
+  // === 8. Offer 요청 중계 ===
+  // 화면 공유 중인 사용자에게 연결 요청
   socket.on("request_offer", (data) => {
-    console.log(`[REQUEST OFFER] from ${socket.id} to ${data.targetId}`);
     // 특정 사용자에게 Offer 요청 전달
     socket.to(data.targetId).emit("request_offer", {
-      requesterId: socket.id,
+      requesterId: socket.id, // 요청한 사람 ID
       requesterNickname: data.requesterNickname || "Unknown",
     });
   });
 
-  // 연결 해제 처리
+  // === 9. 연결 해제 처리 ===
   socket.on("disconnect", () => {
-    console.log(`[DISCONNECT] ${socket.id}`);
-
     const roomId = socketToRoom[socket.id];
     let room = rooms[roomId];
 
@@ -198,7 +190,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// 서버 시작
+// === 서버 시작 ===
 const PORT = 9090;
 server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
