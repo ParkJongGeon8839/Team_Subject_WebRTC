@@ -1,10 +1,21 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
-import socket from '../utils/socket';
+import { useRef, useEffect, useState, useCallback } from "react";
+import socket from "../utils/socket";
 
 const ICE_SERVERS = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
+    // STUN
+    { urls: "stun:stun.l.google.com:19302" },
+
+    // TURN (예시: 직접 운영하는 coturn 서버)
+    {
+      urls: [
+        "turn:your-turn.example.com:3478?transport=udp",
+        "turn:your-turn.example.com:3478?transport=tcp",
+        // 필요하면 "turns:your-turn.example.com:5349" 같은 TLS 포트도
+      ],
+      username: "turn-user",
+      credential: "turn-pass",
+    },
   ],
 };
 
@@ -74,8 +85,8 @@ function useWebRTC(roomId) {
 
       return stream;
     } catch (error) {
-      console.error('마이크 접근 실패:', error);
-      alert('마이크 접근 권한이 필요합니다.');
+      console.error("마이크 접근 실패:", error);
+      alert("마이크 접근 권한이 필요합니다.");
       return null;
     }
   }, []);
@@ -94,7 +105,7 @@ function useWebRTC(roomId) {
     // ICE Candidate 이벤트
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socket.emit('ice-candidate', {
+        socket.emit("ice-candidate", {
           targetId,
           candidate: event.candidate,
         });
@@ -110,6 +121,7 @@ function useWebRTC(roomId) {
       source.connect(analyser);
       analyser.fftSize = 256;
 
+      // 주기적으로 음성 레벨 체크
       const checkLevel = () => {
         const dataArray = new Uint8Array(analyser.frequencyBinCount);
         analyser.getByteFrequencyData(dataArray);
@@ -167,12 +179,12 @@ function useWebRTC(roomId) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
 
-        socket.emit('offer', {
+        socket.emit("offer", {
           targetId,
           sdp: offer,
         });
       } catch (error) {
-        console.error('Offer 생성 실패:', error);
+        console.error("Offer 생성 실패:", error);
       }
     },
     [createPeerConnection]
@@ -188,12 +200,12 @@ function useWebRTC(roomId) {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
-        socket.emit('answer', {
+        socket.emit("answer", {
           targetId: senderId,
           sdp: answer,
         });
       } catch (error) {
-        console.error('Answer 생성 실패:', error);
+        console.error("Answer 생성 실패:", error);
       }
     },
     [createPeerConnection]
@@ -234,25 +246,26 @@ function useWebRTC(roomId) {
 
   // 방 입장 및 이벤트 핸들러 설정
   useEffect(() => {
+    // roomId가 없으면 종료
     if (!roomId) return;
 
     // 기존 이벤트 리스너 제거 (중복 등록 방지)
-    socket.off('join-success');
-    socket.off('user-joined');
-    socket.off('user-left');
-    socket.off('offer');
-    socket.off('answer');
-    socket.off('ice-candidate');
+    socket.off("join-success");
+    socket.off("user-joined");
+    socket.off("user-left");
+    socket.off("offer");
+    socket.off("answer");
+    socket.off("ice-candidate");
 
     const init = async () => {
       await getLocalStream();
-      socket.emit('join-room', { roomId });
+      socket.emit("join-room", { roomId });
     };
 
     init();
 
     // 입장 성공
-    socket.on('join-success', ({ users: existingUsers }) => {
+    socket.on("join-success", ({ users: existingUsers }) => {
       setUsers(existingUsers);
 
       // 기존 유저들에게 Offer 전송
@@ -264,7 +277,7 @@ function useWebRTC(roomId) {
     });
 
     // 새 유저 입장 (중복 체크 추가)
-    socket.on('user-joined', ({ socketId, nickname }) => {
+    socket.on("user-joined", ({ socketId, nickname }) => {
       console.log(`${nickname} 입장`);
       setUsers((prev) => {
         // 이미 존재하는 유저인지 확인
@@ -276,14 +289,14 @@ function useWebRTC(roomId) {
     });
 
     // 유저 퇴장
-    socket.on('user-left', ({ socketId, nickname }) => {
+    socket.on("user-left", ({ socketId, nickname }) => {
       console.log(`${nickname} 퇴장`);
       setUsers((prev) => prev.filter((u) => u.socketId !== socketId));
       closePeerConnection(socketId);
     });
 
     // Offer 수신 (이미 연결된 경우 무시)
-    socket.on('offer', ({ senderId, senderNickname, sdp }) => {
+    socket.on("offer", ({ senderId, senderNickname, sdp }) => {
       console.log(`Offer 수신 from ${senderNickname}`);
       // 이미 PeerConnection이 있으면 무시
       if (peerConnectionsRef.current[senderId]) {
@@ -294,7 +307,7 @@ function useWebRTC(roomId) {
     });
 
     // Answer 수신
-    socket.on('answer', async ({ senderId, sdp }) => {
+    socket.on("answer", async ({ senderId, sdp }) => {
       console.log(`Answer 수신 from ${senderId}`);
       const pc = peerConnectionsRef.current[senderId];
       if (pc) {
@@ -303,13 +316,13 @@ function useWebRTC(roomId) {
     });
 
     // ICE Candidate 수신
-    socket.on('ice-candidate', async ({ senderId, candidate }) => {
+    socket.on("ice-candidate", async ({ senderId, candidate }) => {
       const pc = peerConnectionsRef.current[senderId];
       if (pc && candidate) {
         try {
           await pc.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (error) {
-          console.error('ICE Candidate 추가 실패:', error);
+          console.error("ICE Candidate 추가 실패:", error);
         }
       }
     });
@@ -317,7 +330,7 @@ function useWebRTC(roomId) {
     // 정리
     return () => {
       // 방 나가기
-      socket.emit('leave-room');
+      socket.emit("leave-room");
 
       // 모든 Peer Connection 종료
       Object.keys(peerConnectionsRef.current).forEach(closePeerConnection);
@@ -333,12 +346,12 @@ function useWebRTC(roomId) {
       }
 
       // 이벤트 리스너 정리
-      socket.off('join-success');
-      socket.off('user-joined');
-      socket.off('user-left');
-      socket.off('offer');
-      socket.off('answer');
-      socket.off('ice-candidate');
+      socket.off("join-success");
+      socket.off("user-joined");
+      socket.off("user-left");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("ice-candidate");
     };
   }, [roomId, getLocalStream, createOffer, createAnswer, closePeerConnection]);
 

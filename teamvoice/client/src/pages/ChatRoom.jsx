@@ -1,19 +1,14 @@
-import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import socket from '../utils/socket';
-import useWebRTC from '../hooks/useWebRTC';
+import { useEffect, useState, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import useWebRTC from "../hooks/useWebRTC";
+import useScreenShare from "../hooks/useScreenShare";
+import socket from "../utils/socket";
 
-function ChatRoom({ nickname, onLogout }) {
+function ChatRoom() {
   const { roomId } = useParams();
   const navigate = useNavigate();
 
-  const [roomName, setRoomName] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [newMessage, setNewMessage] = useState('');
-  const [joinError, setJoinError] = useState('');
-
-  const messagesEndRef = useRef(null);
-
+  // 음성채팅 훅
   const {
     users,
     isMuted,
@@ -24,155 +19,264 @@ function ChatRoom({ nickname, onLogout }) {
     mySocketId,
   } = useWebRTC(roomId);
 
-  // 입장 실패 처리
+  // 화면공유 훅
+  const {
+    isSharing,
+    sharingUsers,
+    localScreen,
+    remoteScreens,
+    startScreenShare,
+    stopScreenShare,
+  } = useScreenShare(roomId, users);
+
+  // 텍스트 채팅 상태
+  const [messages, setMessages] = useState([]);
+  const [inputMessage, setInputMessage] = useState("");
+  const messagesEndRef = useRef(null);
+
+  // 화면공유 비디오 Ref
+  const localVideoRef = useRef(null);
+  const remoteVideoRefs = useRef({});
+
+  // 내 화면공유 스트림 연결
   useEffect(() => {
-    socket.on('join-failed', ({ reason }) => {
-      setJoinError(reason);
-    });
+    if (localVideoRef.current && localScreen) {
+      localVideoRef.current.srcObject = localScreen;
+    }
+  }, [localScreen]);
 
-    socket.on('join-success', ({ roomName: name }) => {
-      setRoomName(name);
+  // 원격 화면공유 스트림 연결
+  useEffect(() => {
+    Object.entries(remoteScreens).forEach(([oderId, stream]) => {
+      if (remoteVideoRefs.current[oderId]) {
+        remoteVideoRefs.current[oderId].srcObject = stream;
+      }
     });
+  }, [remoteScreens]);
 
-    // 채팅 메시지 수신
-    socket.on('chat-message', (message) => {
-      setMessages((prev) => [...prev, message]);
+  // 채팅 메시지 수신
+  useEffect(() => {
+    socket.off("chat-message");
+
+    socket.on("chat-message", ({ senderId, nickname, message, timestamp }) => {
+      setMessages((prev) => [
+        ...prev,
+        { senderId, nickname, message, timestamp },
+      ]);
     });
 
     return () => {
-      socket.off('join-failed');
-      socket.off('join-success');
-      socket.off('chat-message');
+      socket.off("chat-message");
     };
   }, []);
 
-  // 메시지 자동 스크롤
+  // 채팅 자동 스크롤
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // 방 나가기
-  const handleLeave = () => {
-    socket.emit('leave-room');
-    navigate('/lobby');
+  // 메시지 전송
+  const sendMessage = () => {
+    if (!inputMessage.trim()) return;
+    socket.emit("chat-message", { message: inputMessage });
+    setInputMessage("");
   };
 
-  // 메시지 전송
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (newMessage.trim()) {
-      socket.emit('chat-message', { message: newMessage.trim() });
-      setNewMessage('');
+  // 방 나가기
+  const handleLeaveRoom = () => {
+    if (isSharing) {
+      stopScreenShare();
+    }
+    navigate("/lobby");
+  };
+
+  // 전체화면 토글
+  const toggleFullScreen = (videoElement) => {
+    if (!videoElement) return;
+
+    if (!document.fullscreenElement) {
+      videoElement.requestFullscreen().catch((err) => {
+        console.error("전체화면 오류:", err);
+      });
+    } else {
+      document.exitFullscreen();
     }
   };
 
-  // 입장 실패 시
-  if (joinError) {
-    return (
-      <div className="connection-status error">
-        <h2>입장 실패</h2>
-        <p>{joinError}</p>
-        <button onClick={() => navigate('/lobby')}>로비로 돌아가기</button>
-      </div>
-    );
-  }
+  // 화면공유 중인 유저 찾기
+  const getUserNickname = (oderId) => {
+    const user = users.find((u) => u.socketId === oderId);
+    return user?.nickname || "알 수 없음";
+  };
+
+  // 화면공유 영역에 표시할 스트림들
+  const hasAnyScreenShare = isSharing || Object.keys(remoteScreens).length > 0;
 
   return (
     <div className="chat-room">
-      {/* 헤더 */}
-      <div className="chat-room-header">
-        <h2>🔊 {roomName || '연결 중...'}</h2>
-        <button className="leave-btn" onClick={handleLeave}>
-          나가기
-        </button>
+      {/* 왼쪽: 참여자 목록 */}
+      <div className="participants-panel">
+        <h3>참여자 ({users.length})</h3>
+        <ul className="user-list">
+          {users.map((user) => (
+            <li
+              key={user.socketId}
+              className={`user-item ${
+                speakingUsers.has(user.socketId) ? "speaking" : ""
+              }`}
+            >
+              <div className="user-avatar">
+                {user.nickname.charAt(0).toUpperCase()}
+              </div>
+              <span className="user-name">
+                {user.nickname}
+                {user.socketId === mySocketId && " (나)"}
+              </span>
+              {speakingUsers.has(user.socketId) && (
+                <span className="speaking-indicator">🎙️</span>
+              )}
+              {(user.socketId === mySocketId
+                ? isSharing
+                : sharingUsers.has(user.socketId)) && (
+                <span className="screen-indicator">🖥️</span>
+              )}
+            </li>
+          ))}
+        </ul>
       </div>
 
-      {/* 참여자 목록 */}
-      <div className="user-list">
-        <h3>참여자 ({users.length}/5)</h3>
-        {users.map((user) => (
-          <div
-            key={user.socketId}
-            className={`user-item ${
-              speakingUsers.has(user.socketId) ? 'speaking' : ''
-            } ${user.socketId === mySocketId ? 'me' : ''}`}
-          >
-            <div className="user-avatar">
-              {user.nickname.charAt(0).toUpperCase()}
-            </div>
-            <span className="user-name">
-              {user.nickname}
-              {user.socketId === mySocketId && ' (나)'}
-            </span>
-            {speakingUsers.has(user.socketId) && (
-              <span className="speaking-indicator">🎙️</span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* 오디오 컨트롤 */}
-      <div className="audio-controls">
-        <button
-          className={`mute-btn ${isMuted ? 'muted' : ''}`}
-          onClick={toggleMute}
-          title={isMuted ? '음소거 해제' : '음소거'}
+      {/* 가운데: 화면공유 + 음성 제어 */}
+      <div className="main-panel">
+        {/* 화면공유 영역 */}
+        <div
+          className={`screen-share-area ${hasAnyScreenShare ? "active" : ""}`}
         >
-          {isMuted ? '🔇' : '🎤'}
-        </button>
+          {!hasAnyScreenShare ? (
+            <div className="no-screen-share">
+              <div className="no-share-icon">🖥️</div>
+              <p>화면 공유가 없습니다</p>
+              <p className="sub-text">아래 버튼을 눌러 화면을 공유해보세요</p>
+            </div>
+          ) : (
+            <div className="screen-grid">
+              {/* 내 화면공유 */}
+              {isSharing && (
+                <div className="screen-box my-screen">
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    onClick={(e) => toggleFullScreen(e.target)}
+                  />
+                  <div className="screen-label">내 화면 (공유 중)</div>
+                </div>
+              )}
 
-        <div className="volume-control" onClick={(e) => e.stopPropagation()}>
-          <span>🔈</span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.1"
-            value={volume}
-            onChange={(e) => changeVolume(parseFloat(e.target.value))}
-            onMouseDown={(e) => e.stopPropagation()}
-            onTouchStart={(e) => e.stopPropagation()}
-          />
-          <span>🔊</span>
+              {/* 다른 유저 화면공유 */}
+              {Object.entries(remoteScreens).map(([oderId, stream]) => (
+                <div key={oderId} className="screen-box">
+                  <video
+                    ref={(el) => {
+                      if (el) {
+                        remoteVideoRefs.current[oderId] = el;
+                        el.srcObject = stream;
+                      }
+                    }}
+                    autoPlay
+                    playsInline
+                    onClick={(e) => toggleFullScreen(e.target)}
+                  />
+                  <div className="screen-label">
+                    {getUserNickname(oderId)}의 화면
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <p style={{ color: '#888', fontSize: '0.9rem' }}>
-          {isMuted ? '마이크가 꺼져 있습니다' : '마이크가 켜져 있습니다'}
-        </p>
+        {/* 컨트롤 영역 */}
+        <div className="controls-area">
+          {/* 음성 제어 */}
+          <div className="audio-controls">
+            <button
+              className={`control-btn mute-btn ${isMuted ? "muted" : ""}`}
+              onClick={toggleMute}
+            >
+              {isMuted ? "🔇" : "🎤"}
+            </button>
+            <div
+              className="volume-control"
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+            >
+              <span>🔊</span>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={volume}
+                onChange={(e) => changeVolume(Number(e.target.value))}
+              />
+              <span>{volume}%</span>
+            </div>
+          </div>
+
+          {/* 화면공유 버튼 */}
+          <button
+            className={`control-btn screen-btn ${isSharing ? "sharing" : ""}`}
+            onClick={isSharing ? stopScreenShare : startScreenShare}
+          >
+            {isSharing ? "🛑 공유 중지" : "🖥️ 화면 공유"}
+          </button>
+
+          {/* 나가기 버튼 */}
+          <button className="control-btn leave-btn" onClick={handleLeaveRoom}>
+            나가기
+          </button>
+        </div>
       </div>
 
-      {/* 텍스트 채팅 */}
+      {/* 오른쪽: 텍스트 채팅 */}
       <div className="text-chat">
-        <h3>💬 채팅</h3>
-
+        <h3>채팅</h3>
         <div className="messages">
-          {messages.map((msg, index) => (
-            <div
-              key={index}
-              className={`message ${msg.senderId === mySocketId ? 'mine' : ''}`}
-            >
-              <div className="message-header">
-                <span>{msg.nickname}</span>
-                <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
+          {messages.map((msg, index) => {
+            const isMyMessage = msg.senderId === mySocketId;
+            return (
+              <div
+                key={index}
+                className={`message ${
+                  isMyMessage ? "my-message" : "other-message"
+                }`}
+              >
+                {!isMyMessage && (
+                  <span className="msg-nickname">{msg.nickname}</span>
+                )}
+                <p className="msg-content">{msg.message}</p>
+                <span className="msg-time">
+                  {new Date(msg.timestamp).toLocaleTimeString("ko-KR", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </span>
               </div>
-              <div className="message-content">{msg.message}</div>
-            </div>
-          ))}
+            );
+          })}
           <div ref={messagesEndRef} />
         </div>
-
-        <form className="chat-input" onSubmit={handleSendMessage}>
+        <div className="chat-input">
           <input
             type="text"
-            placeholder="메시지를 입력하세요..."
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            maxLength={200}
+            placeholder="메시지 입력..."
+            value={inputMessage}
+            onChange={(e) => setInputMessage(e.target.value)}
+            onKeyPress={(e) => e.key === "Enter" && sendMessage()}
           />
-          <button type="submit" disabled={!newMessage.trim()}>
-            전송
-          </button>
-        </form>
+          <button onClick={sendMessage}>전송</button>
+        </div>
       </div>
     </div>
   );

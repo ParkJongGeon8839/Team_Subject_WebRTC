@@ -1,22 +1,23 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 function NicknamePage({ onSetNickname }) {
-  const [name, setName] = useState('');
+  const [name, setName] = useState("");
   const navigate = useNavigate();
 
+  // 닉네임 제출 핸들러
   const handleSubmit = (e) => {
     e.preventDefault();
     if (name.trim()) {
       onSetNickname(name.trim());
-      navigate('/lobby');
+      navigate("/lobby");
     }
   };
 
   return (
     <div className="nickname-page">
-      <h1>🎤 Voice Chat</h1>
-      <p className="subtitle">실시간 음성 채팅 서비스</p>
+      <h1>🎤 Voice Chat & Screen Share</h1>
+      <p className="subtitle">실시간 음성 채팅, 화면 공유 서비스</p>
 
       <form className="nickname-form" onSubmit={handleSubmit}>
         <input
