@@ -1,0 +1,5 @@
+/* 기본 스타일은 App.css에서 관리 */
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
