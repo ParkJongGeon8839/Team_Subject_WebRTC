@@ -11,6 +11,18 @@
 
 이 프로젝트는 WebRTC와 Socket.io를 활용하여 실시간 음성 통신과 화면 공유 기능을 구현한 웹 애플리케이션입니다. 사용자는 방을 생성하거나 기존 방에 입장하여 다른 사용자들과 실시간으로 소통할 수 있습니다.
 
+## 🎬 시연 영상
+
+### 로비 및 방 목록
+
+<img src="./images/Loby_Room.gif">
+
+### 음성 채팅 및 화면 공유
+
+<img src="./images/ScreenSharing.gif">
+
+## 📁 프로젝트 구조
+
 ## 🛠 기술 스택
 
 ### Frontend
@@ -106,24 +118,6 @@ npm run dev
 ### 4️⃣ 접속
 
 브라우저에서 `http://localhost:5173`로 접속하여 애플리케이션을 사용할 수 있습니다.
-
-## 🎬 시연 영상
-
-<!-- 여기에 GIF 또는 스크린샷을 추가하세요 -->
-
-### 닉네임 입력
-
-![닉네임 입력 화면](./screenshots/nickname.gif)
-
-### 로비 및 방 목록
-
-![로비 화면](./screenshots/lobby.gif)
-
-### 음성 채팅 및 화면 공유
-
-![채팅룸 화면](./screenshots/chatroom.gif)
-
-## 📁 프로젝트 구조
 
 ```
 teamvoice/
