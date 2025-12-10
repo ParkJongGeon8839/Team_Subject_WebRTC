@@ -38,18 +38,43 @@ function ChatRoom() {
   const localVideoRef = useRef(null);
   const remoteVideoRefs = useRef({});
 
-  // 내 화면공유 스트림 연결
+  // ✅ 내 화면공유 스트림 연결
   useEffect(() => {
     if (localVideoRef.current && localScreen) {
+      console.log("✅ 내 화면 스트림 연결:", localScreen);
       localVideoRef.current.srcObject = localScreen;
+    } else if (localVideoRef.current && !localScreen) {
+      console.log("❌ 내 화면 스트림 해제");
+      localVideoRef.current.srcObject = null;
     }
   }, [localScreen]);
 
-  // 원격 화면공유 스트림 연결
+  // ✅ 원격 화면공유 스트림 연결 (개선)
   useEffect(() => {
-    Object.entries(remoteScreens).forEach(([oderId, stream]) => {
-      if (remoteVideoRefs.current[oderId]) {
-        remoteVideoRefs.current[oderId].srcObject = stream;
+    console.log("🔄 원격 화면 업데이트:", Object.keys(remoteScreens));
+
+    Object.entries(remoteScreens).forEach(([userId, stream]) => {
+      if (remoteVideoRefs.current[userId] && stream) {
+        console.log(`✅ 원격 화면 연결 (${userId}):`, stream);
+        const videoElement = remoteVideoRefs.current[userId];
+
+        // 스트림이 변경되었는지 확인
+        if (videoElement.srcObject !== stream) {
+          videoElement.srcObject = stream;
+
+          // 비디오 재생 보장
+          videoElement.play().catch((err) => {
+            console.warn("비디오 자동 재생 실패:", err);
+          });
+        }
+      }
+    });
+
+    // 연결 해제된 스트림 정리
+    Object.keys(remoteVideoRefs.current).forEach((userId) => {
+      if (!remoteScreens[userId] && remoteVideoRefs.current[userId]) {
+        console.log(`❌ 원격 화면 해제 (${userId})`);
+        remoteVideoRefs.current[userId].srcObject = null;
       }
     });
   }, [remoteScreens]);
@@ -104,8 +129,8 @@ function ChatRoom() {
   };
 
   // 화면공유 중인 유저 찾기
-  const getUserNickname = (oderId) => {
-    const user = users.find((u) => u.socketId === oderId);
+  const getUserNickname = (userId) => {
+    const user = users.find((u) => u.socketId === userId);
     return user?.nickname || "알 수 없음";
   };
 
@@ -160,7 +185,7 @@ function ChatRoom() {
           ) : (
             <div className="screen-grid">
               {/* 내 화면공유 */}
-              {isSharing && (
+              {isSharing && localScreen && (
                 <div className="screen-box my-screen">
                   <video
                     ref={localVideoRef}
@@ -174,21 +199,28 @@ function ChatRoom() {
               )}
 
               {/* 다른 유저 화면공유 */}
-              {Object.entries(remoteScreens).map(([oderId, stream]) => (
-                <div key={oderId} className="screen-box">
+              {Object.entries(remoteScreens).map(([userId, stream]) => (
+                <div key={userId} className="screen-box">
                   <video
                     ref={(el) => {
                       if (el) {
-                        remoteVideoRefs.current[oderId] = el;
-                        el.srcObject = stream;
+                        remoteVideoRefs.current[userId] = el;
+                      } else {
+                        delete remoteVideoRefs.current[userId];
                       }
                     }}
                     autoPlay
                     playsInline
                     onClick={(e) => toggleFullScreen(e.target)}
+                    onLoadedMetadata={(e) => {
+                      console.log(`📹 비디오 메타데이터 로드됨 (${userId})`);
+                      e.target
+                        .play()
+                        .catch((err) => console.warn("재생 실패:", err));
+                    }}
                   />
                   <div className="screen-label">
-                    {getUserNickname(oderId)}의 화면
+                    {getUserNickname(userId)}의 화면
                   </div>
                 </div>
               ))}
